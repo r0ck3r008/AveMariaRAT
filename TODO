@@ -1,0 +1,3 @@
+Determine why MessageBoxA
+Patch the Shellcode to pass the antidebugger
+YARA Rule generation
