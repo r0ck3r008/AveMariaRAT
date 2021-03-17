@@ -38,7 +38,7 @@
 \newpage
 \section{Executive Summary}
 
-\section{Static Analysis}
+\section{Static Analysis: Primary Executable}
 \subsection{Basic Identification}
 \begin{center}
 	\begin{tabular}{c | c}
@@ -49,30 +49,205 @@
 		Endianess & Little\\
 		Operating System & Microsoft Windows\\
 		\hline
-		Class & \\
-		Subsystem & \\
+		Class & PE32\\
+		Subsystem & Windows CUI\\
 		\hline
-		Size & \\
-		Compiler Timestamp & \\
-		Debugger Timestamp & \\
-		SHA256 Hash & \\
+		Size & 1446912\\
+		Compiler Timestamp & Thu Dec 10 02:47:43 2020\\
+		Compiler & Visual Studio\\
+		SHA256 Hash & 9633d0564a2b8f1b4c6e718ae7ab48be921d435236a403cf5e7ddfbfd4283382\\
 		\hline
 	\end{tabular}
 \end{center}
 
 \subsection{Malware Sample Family Identification}
+\begin{figure}[!htbp]% [!hb] forces image to be placed at that position
+	\centering
+	\includegraphics[width=\columnwidth]{pics/family.png}
+	\caption{VirusTotal: VirusTotal Scan}
+	\label{family}
+\end{figure}
+The given PE file, on being uploaded to VirusTotal, is identified as a variant of \textit{AveMariaRAT} family (Fig. \ref{family})
+As seen later in the \textit{dynamic analysis} section, another in-memory PE when dumped and analysed on VirusTotal, is identified to belong to \textit{WarZoneRAT} family.
 
 \subsection{PE Sections}
-	\subsubsection{The Text section}
-	\subsubsection{The Rdata Section}
-	\subsubsection{The Data Section}
-	\subsubsection{The Resource and Re-allocation Sections}
+\begin{figure}[!htbp]% [!hb] forces image to be placed at that position
+	\centering
+	\includegraphics[width=\columnwidth]{pics/section_entropy.png}
+	\caption{Rizin: Section-wise Entropy}
+	\label{entropy}
+\end{figure}
+
+	\subsubsection{The \textit{.text}, \textit{.rdata}, \textit{.idata}, \textit{.rsrc} and \textit{.reloc} sections}
+	These commonly found PE sections within the executable show no peculiar characteristics in terms of entropy, virtual sizes and permissions.
+	\subsubsection{The \textit{.data} Section}
+	This section, although not peculiar either, on static analysis reveals that it is referenced in the identified main function.
+	On further analysis of the function, a unpacking loop is encountered thus hinting towards the section being the store of packed data.
+	\subsubsection{The \textit{.tls} Section}
+	Presence of this section generally hints towards thread execution before \textit{entrypoint} is reached in the context of malicious binaries.
+	This binary, however, shows no such execution. Thus, the reason for the presence of this section cannot be corroborated during the current analysis.
+	\subsubsection{The \textit{.00cfg} Section}
+	The presence of this unusual section (\textit{Control Flow Guard}) seems to be explained as an artifact of the \textit{Visual studio compiler}.
+	This guess is supported by
+	\begin{itemize}
+		\item Very small size of the section \textit{0x200}.
+		\item Almost all bytes being zeros.
+		\item All the references to this section (Fig. \ref{cfg}) seem to originate from \textit{Ghidra} identified library functions with exception to one which does not show much promise on followup.
+	\end{itemize}
+	\begin{figure}[!htbp]% [!hb] forces image to be placed at that position
+		\centering
+		\includegraphics[width=\columnwidth]{pics/cfg.png}
+		\caption{Ghidra: references to the \textit{.00cfg} section}
+		\label{cfg}
+	\end{figure}
 
 \subsection{A case for Packing}
+\begin{figure}[!htbp]% [!hb] forces image to be placed at that position
+	\centering
+	\includegraphics[width=\columnwidth]{pics/unpacking.png}
+	\caption{Ghidra: Disassembly of unpacking}
+	\label{unpacking}
+\end{figure}
+A very strong case for packing can be made for this binary given the following observations,
+\begin{itemize}
+	\item The identified \textit{main} function exhibits a series of byte operations on data pointed to by the \textit{.data} section.
+	\item Immediately preceding the manipulations, a call to \textit{VirtualAlloc} can be intercepted.
+	\item The manipulated bytes from \textit{.data} section are stored in the allocated memory section.
+	\item After the said manipulations, the memory section is called as a function.
+	\item The said allocated section, on analysis and after being manipulated, exhibits a presence of \textit{shell code} and a \textit{PE} header preceding code at repeatedly reproducible offsets and sizes.
+\end{itemize}
+
+\subsection{Interesting Imports}
+\begin{figure}[!htbp]% [!hb] forces image to be placed at that position
+	\centering
+	\includegraphics[width=\columnwidth]{pics/imports_parent.png}
+	\caption{Ghidra: Imports tree}
+	\label{imports_parent}
+\end{figure}
+	\subsubsection{Imports from \textit{Kernel32.dll}}
+	Imports like \textit{VirtualAlloc and VirtualFree} in combination with \textit{VirtualProtect} strongly indicate runtime memory injection preceding change in injected region's permissions to \textit{executable}.
+	Presence of \textit{FreeConsole} seems to corroborate the assumption that this is a \textit{CUI} program, given this function is used to unlink from the parent process.
+
+	\subsection{Imports from \textit{user32.dll}}
+	An import from this library, \textit{viz.}, \textit{MessageBoxA} is peculiar. This is due to the fact that, in \textit{main} function, the permissions of memory containing code for this import is updated from \textit{PAGE\_EXECUTE\_READ} to
+	\textit{PAGE\_EXECUTE\_READWRITE} and is subsequently the code is replaced with a \textit{return 0x10000} call.
+	This function is then invoked multiple times during the unpacking process and the string \textit{``pbstrPath != 0 \&\& ppTypeLib != 0''} is pushed as twice arguments. The reason behind this could not be identified during this analysis (Fig \ref{unpacking}).
+
+\section{Static Analysis: Dynamically Unpacked Shell Code}
+\subsection{Basic Identification}
+\begin{center}
+	\begin{tabular}{c | c}
+		Attribute & Value\\
+		\hline
+		\hline
+		Bits & 32\\
+		Endianess & Little\\
+		Operating System & Microsoft Windows\\
+		\hline
+		Class & PE32\\
+		Subsystem & Windows CUI\\
+		\hline
+		Size & 1446912\\
+		Compiler Timestamp & Thu Dec 10 02:47:43 2020\\
+		Compiler & Visual Studio\\
+		SHA256 Hash & 9633d0564a2b8f1b4c6e718ae7ab48be921d435236a403cf5e7ddfbfd4283382\\
+		\hline
+	\end{tabular}
+\end{center}
+
+\subsection{Sample Family Identification}
+
+\subsection{Shell Code Sections}
+	\subsubsection{The \textit{.text}, \textit{.rdata}, \textit{.idata}, \textit{.rsrc} and \textit{.reloc} sections}
+	These commonly found PE sections within the executable show no peculiar characteristics in terms of entropy, virtual sizes and permissions.
+	\subsubsection{The \textit{.data} Section}
+	This section, although not peculiar either, on static analysis reveals that it is referenced in the identified main function.
+	On further analysis of the function, a unpacking loop is encountered thus hinting towards the section being the store of packed data.
+	\subsubsection{The \textit{.tls} Section}
+	Presence of this section generally hints towards thread execution before \textit{entrypoint} is reached in the context of malicious binaries.
+	This binary, however, shows no such execution. Thus, the reason for the presence of this section cannot be corroborated during the current analysis.
+	\subsubsection{The \textit{.00cfg} Section}
+	The presence of this unusual section (\textit{Control Flow Guard}) seems to be explained as an artifact of the \textit{Visual studio compiler}.
+	This guess is supported by
+	\begin{itemize}
+		\item Very small size of the section \textit{0x200}.
+		\item Almost all bytes being zeros.
+		\item All the references to this section (Fig. \ref{cfg}) seem to originate from \textit{Ghidra} identified library functions with exception to one which does not show much promise on followup.
+	\end{itemize}
+	\begin{figure}[!htbp]% [!hb] forces image to be placed at that position
+		\centering
+		\includegraphics[width=\columnwidth]{pics/cfg.png}
+		\caption{Ghidra: references to the \textit{.00cfg} section}
+		\label{cfg}
+	\end{figure}
 
 \subsection{Interesting Imports}
 
-\section{Dynamic Analysis}
+\section{Static Analysis: Dynamically Unpacked PE Executable}
+\subsection{Basic Identification}
+\begin{center}
+	\begin{tabular}{c | c}
+		Attribute & Value\\
+		\hline
+		\hline
+		Bits & 32\\
+		Endianess & Little\\
+		Operating System & Microsoft Windows\\
+		\hline
+		Class & PE32\\
+		Subsystem & Windows CUI\\
+		\hline
+		Size & 1446912\\
+		Compiler Timestamp & Thu Dec 10 02:47:43 2020\\
+		Compiler & Visual Studio\\
+		SHA256 Hash & 9633d0564a2b8f1b4c6e718ae7ab48be921d435236a403cf5e7ddfbfd4283382\\
+		\hline
+	\end{tabular}
+\end{center}
+
+\subsection{Sample Family Identification}
+
+\subsection{PE Sections}
+	\subsubsection{The \textit{.text}, \textit{.rdata}, \textit{.idata}, \textit{.rsrc} and \textit{.reloc} sections}
+	\subsubsection{The \textit{.data} Section}
+	\subsubsection{The \textit{.tls} Section}
+	\subsubsection{The \textit{.00cfg} Section}
+
+\subsection{Interesting Imports}
+
+\section{Static Analysis: Dynamically Unpacked DLL}
+\subsection{Basic Identification}
+\begin{center}
+	\begin{tabular}{c | c}
+		Attribute & Value\\
+		\hline
+		\hline
+		Bits & 32\\
+		Endianess & Little\\
+		Operating System & Microsoft Windows\\
+		\hline
+		Class & PE32\\
+		Subsystem & Windows CUI\\
+		\hline
+		Size & 1446912\\
+		Compiler Timestamp & Thu Dec 10 02:47:43 2020\\
+		Compiler & Visual Studio\\
+		SHA256 Hash & 9633d0564a2b8f1b4c6e718ae7ab48be921d435236a403cf5e7ddfbfd4283382\\
+		\hline
+	\end{tabular}
+\end{center}
+
+\subsection{Sample Family Identification}
+
+\subsection{Sections}
+	\subsubsection{The \textit{.text}, \textit{.rdata}, \textit{.idata}, \textit{.rsrc} and \textit{.reloc} sections}
+	\subsubsection{The \textit{.data} Section}
+	\subsubsection{The \textit{.tls} Section}
+	\subsubsection{The \textit{.00cfg} Section}
+
+\subsection{Interesting Imports}
+
+\section{Dynamic Analysis: Primary Executable}
 		\subsection{Network Based Analysis}
 			\subsubsection{External domains contacted}
 			\subsubsection{Internet Protocols Used}
