@@ -1,1 +1,10 @@
 *.exe
+*.aux
+*.blg
+*.out
+*.xml
+*.toc
+*.bcf
+*.bbl
+*.log
+*.png
